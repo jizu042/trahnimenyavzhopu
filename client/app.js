@@ -8,7 +8,7 @@ const KEYS = {
 const LS_ONLINE_SINCE = "monitor_online_since_v1";
 
 const DEFAULTS = {
-  address: "143.14.50.57:25566",
+  address: "",
   apiBase: "",
   token: "",
   intervalSec: 10
@@ -21,10 +21,16 @@ let lastPollOnline = null;
 /** @type {ReturnType<typeof setInterval> | null} */
 let pollTimer = null;
 let hasRenderedOnce = false;
-/** @type {ReturnType<typeof setTimeout> | null} */
-let loadingDelayTimer = null;
-/** @type {number | null} */
-let loadingShownAt = null;
+let skinviewLoading = false;
+let skinviewReady = false;
+/** @type {any | null} */
+let activeSkinViewer = null;
+/** @type {string | null} */
+let skinPreviewFor = null;
+
+function canHoverSkinPreview() {
+  return window.matchMedia("(hover: hover) and (pointer: fine)").matches;
+}
 
 function getSettings() {
   try {
@@ -163,62 +169,257 @@ function parseNames(data) {
   return Array.isArray(data?.players?.list) ? data.players.list.filter(Boolean) : [];
 }
 
+function el(id) {
+  return document.getElementById(id);
+}
+
+/**
+ * Direct Ely.by skin URL (fallback; canvas may be tainted without backend proxy).
+ * @param {string} username
+ */
+function elySkinUrlDirect(username) {
+  return `https://skinsystem.ely.by/skins/${encodeURIComponent(username)}.png`;
+}
+
+/**
+ * Prefer backend proxy (same CORS as API) so canvas/WebGL can read pixels.
+ * @param {string} username
+ */
+function skinUrlForUser(username) {
+  const base = normalizeApiBase(getSettings().apiBase);
+  if (base) return `${base}/api/v1/skin/${encodeURIComponent(username)}`;
+  return elySkinUrlDirect(username);
+}
+
+/**
+ * Draw a Minecraft head (with hat layer) to a canvas.
+ * Works with standard 64x64 skins.
+ * @param {HTMLCanvasElement} canvas
+ * @param {string} username
+ */
+async function drawHead(canvas, username) {
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return;
+  const size = canvas.width;
+  ctx.imageSmoothingEnabled = false;
+
+  const base = normalizeApiBase(getSettings().apiBase);
+  if (!base) {
+    ctx.fillStyle = colorMixSurface();
+    ctx.fillRect(0, 0, size, size);
+    ctx.fillStyle = "#64748b";
+    ctx.font = "bold 14px ui-monospace, monospace";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText(String(username).slice(0, 1).toUpperCase(), size / 2, size / 2);
+    canvas.title = "Укажите API Base (бэкенд) в настройках — скины Ely.by идут через /api/v1/skin";
+    return;
+  }
+
+  const img = new Image();
+  img.crossOrigin = "anonymous";
+  img.referrerPolicy = "no-referrer";
+  img.src = skinUrlForUser(username);
+
+  await new Promise((resolve) => {
+    img.onload = resolve;
+    img.onerror = resolve;
+  });
+
+  if (!img.naturalWidth || !img.naturalHeight) {
+    ctx.fillStyle = "#334155";
+    ctx.fillRect(0, 0, size, size);
+    return;
+  }
+
+  ctx.clearRect(0, 0, size, size);
+  ctx.drawImage(img, 8, 8, 8, 8, 0, 0, size, size);
+  ctx.drawImage(img, 40, 8, 8, 8, 0, 0, size, size);
+}
+
+function colorMixSurface() {
+  return getComputedStyle(document.documentElement).getPropertyValue("--surface").trim() || "#fff";
+}
+
+/**
+ * Load skinview3d bundle lazily (jsDelivr).
+ * @returns {Promise<boolean>}
+ */
+async function ensureSkinview3d() {
+  if (skinviewReady) return true;
+  if (skinviewLoading) {
+    await new Promise((r) => setTimeout(r, 100));
+    return skinviewReady;
+  }
+  skinviewLoading = true;
+  try {
+    // Global: skinview3d
+    const s = document.createElement("script");
+    s.src = "https://cdn.jsdelivr.net/npm/skinview3d@3.4.1/bundles/skinview3d.bundle.js";
+    s.async = true;
+    const ok = await new Promise((resolve) => {
+      s.onload = () => resolve(true);
+      s.onerror = () => resolve(false);
+      document.head.appendChild(s);
+    });
+    // Some builds expose window.skinview3d, some window.Skinview3d.
+    skinviewReady = Boolean(ok && (window.skinview3d || window.Skinview3d));
+    return skinviewReady;
+  } finally {
+    skinviewLoading = false;
+  }
+}
+
+function disposeActiveSkinViewer() {
+  if (activeSkinViewer && typeof activeSkinViewer.dispose === "function") {
+    try {
+      activeSkinViewer.dispose();
+    } catch {
+      // ignore
+    }
+  }
+  activeSkinViewer = null;
+  skinPreviewFor = null;
+}
+
+function hideSkinTooltip() {
+  const tip = el("skinTooltip");
+  if (!tip) return;
+  tip.hidden = true;
+  tip.setAttribute("aria-hidden", "true");
+  disposeActiveSkinViewer();
+}
+
+/**
+ * @param {HTMLCanvasElement} canvas
+ * @param {string} username
+ */
+async function renderSkin2dFull(canvas, username) {
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return;
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  const base = normalizeApiBase(getSettings().apiBase);
+  if (!base) {
+    ctx.fillStyle = "#64748b";
+    ctx.font = "14px system-ui";
+    ctx.fillText("Нужен API Base (бэкенд) для скинов", 8, 28);
+    return;
+  }
+  const img = new Image();
+  img.crossOrigin = "anonymous";
+  img.referrerPolicy = "no-referrer";
+  img.src = skinUrlForUser(username);
+  await new Promise((resolve) => {
+    img.onload = resolve;
+    img.onerror = resolve;
+  });
+  if (!img.naturalWidth) return;
+  const scale = Math.min(canvas.width / img.naturalWidth, canvas.height / img.naturalHeight);
+  const w = Math.floor(img.naturalWidth * scale);
+  const h = Math.floor(img.naturalHeight * scale);
+  const ox = Math.floor((canvas.width - w) / 2);
+  const oy = Math.floor((canvas.height - h) / 2);
+  ctx.imageSmoothingEnabled = false;
+  ctx.drawImage(img, 0, 0, img.naturalWidth, img.naturalHeight, ox, oy, w, h);
+}
+
+/**
+ * @param {HTMLCanvasElement} canvas
+ * @param {string} username
+ */
+async function mountSkinViewer3d(canvas, username) {
+  const ready = await ensureSkinview3d();
+  if (!ready) return false;
+  const api = window.skinview3d || window.Skinview3d;
+  disposeActiveSkinViewer();
+  try {
+    activeSkinViewer = new api.SkinViewer({
+      canvas,
+      width: canvas.width,
+      height: canvas.height,
+      skin: skinUrlForUser(username)
+    });
+    activeSkinViewer.animation = new api.WalkingAnimation();
+    activeSkinViewer.animation.speed = 0.6;
+    activeSkinViewer.camera.rotation.x = -0.2;
+    activeSkinViewer.camera.rotation.y = 0.7;
+    activeSkinViewer.camera.position.z = 45;
+    skinPreviewFor = username;
+    return true;
+  } catch {
+    disposeActiveSkinViewer();
+    return false;
+  }
+}
+
+/**
+ * @param {HTMLCanvasElement} canvas
+ * @param {string} username
+ */
+async function renderSkinPreviewCanvas(canvas, username) {
+  disposeActiveSkinViewer();
+  const ok = await mountSkinViewer3d(canvas, username);
+  if (!ok) await renderSkin2dFull(canvas, username);
+}
+
+/**
+ * @param {string} username
+ * @param {MouseEvent} ev
+ */
+async function showSkinTooltip(username, ev) {
+  const tip = el("skinTooltip");
+  const title = el("skinTooltipTitle");
+  const canvas = /** @type {HTMLCanvasElement} */ (el("skinTooltipCanvas"));
+  if (!tip || !title || !canvas) return;
+
+  title.textContent = username;
+
+  const margin = 14;
+  const x = Math.min(window.innerWidth - tip.offsetWidth - margin, ev.clientX + margin);
+  const y = Math.min(window.innerHeight - tip.offsetHeight - margin, ev.clientY + margin);
+  tip.style.left = `${Math.max(margin, x)}px`;
+  tip.style.top = `${Math.max(margin, y)}px`;
+  tip.hidden = false;
+  tip.setAttribute("aria-hidden", "false");
+
+  if (skinPreviewFor === username && activeSkinViewer) return;
+
+  await renderSkinPreviewCanvas(canvas, username);
+}
+
+/**
+ * @param {string} username
+ */
+async function openSkinPreviewDialog(username) {
+  hideSkinTooltip();
+  const dlg = el("skinPreviewDialog");
+  const title = el("skinDialogTitle");
+  const canvas = /** @type {HTMLCanvasElement} */ (el("skinDialogCanvas"));
+  if (!dlg || !title || !canvas || !username) return;
+  title.textContent = username;
+  if (!dlg.open) dlg.showModal();
+  await renderSkinPreviewCanvas(canvas, username);
+}
+
+function wireSkinPreviewDialog() {
+  const dlg = el("skinPreviewDialog");
+  if (!dlg) return;
+  dlg.addEventListener("close", () => {
+    disposeActiveSkinViewer();
+  });
+}
+
 /**
  * @param {boolean} loading
  */
 function setDashboardLoading(loading) {
   const panel = document.getElementById("dashboard");
-  const overlay = document.getElementById("dashboardLoading");
   const badge = document.getElementById("statusBadge");
 
   if (panel) panel.setAttribute("aria-busy", loading ? "true" : "false");
 
-  // Always show a subtle refresh indicator, but avoid an annoying full overlay
-  // on every 10s poll. The overlay is only used for the very first render or
-  // if a request takes noticeably long.
+  // Only subtle indicator near the status badge (no fullscreen overlay).
   if (badge) badge.classList.toggle("is-refreshing", loading);
-
-  if (!overlay) return;
-
-  if (!loading) {
-    if (loadingDelayTimer) {
-      clearTimeout(loadingDelayTimer);
-      loadingDelayTimer = null;
-    }
-    // Prevent flash: if we already showed it, keep for a minimum duration.
-    if (loadingShownAt != null) {
-      const elapsed = Date.now() - loadingShownAt;
-      const minVisible = 450;
-      if (elapsed < minVisible) {
-        setTimeout(() => {
-          overlay.hidden = true;
-          loadingShownAt = null;
-        }, minVisible - elapsed);
-        return;
-      }
-    }
-    overlay.hidden = true;
-    loadingShownAt = null;
-    return;
-  }
-
-  // Loading=true
-  if (hasRenderedOnce) {
-    // Only show overlay if the request is slow.
-    if (loadingDelayTimer) clearTimeout(loadingDelayTimer);
-    loadingDelayTimer = setTimeout(() => {
-      overlay.hidden = false;
-      loadingShownAt = Date.now();
-    }, 700);
-    return;
-  }
-
-  // First paint: show quickly (still with a tiny delay to avoid micro-flash)
-  if (loadingDelayTimer) clearTimeout(loadingDelayTimer);
-  loadingDelayTimer = setTimeout(() => {
-    overlay.hidden = false;
-    loadingShownAt = Date.now();
-  }, 150);
 }
 
 async function refresh() {
@@ -228,6 +429,30 @@ async function refresh() {
     clearOnlineSince();
   }
   trackedAddress = settings.address;
+
+  const addrTrim = String(settings.address || "").trim();
+  if (!addrTrim) {
+    setDashboardLoading(false);
+    document.getElementById("errorBanner").hidden = true;
+    lastPollOnline = null;
+    clearOnlineSince();
+    tickUptime();
+    renderBadge(null);
+    document.getElementById("addressView").textContent = "—";
+    document.getElementById("pingView").textContent = "—";
+    document.getElementById("playersView").textContent = "—";
+    document.getElementById("uptimeView").textContent = "—";
+    document.getElementById("playersList").innerHTML = "";
+    document.getElementById("playersEmpty").hidden = false;
+    document.getElementById("playersEmpty").textContent =
+      "Укажите адрес сервера в «Настройках» (в репозитории адрес по умолчанию не задан).";
+    document.getElementById("versionLine").textContent = "";
+    document.getElementById("motdLine").textContent = "";
+    renderRows("infoTbody", []);
+    renderRows("fullInfoTbody", []);
+    document.getElementById("updateHint").textContent = "Задайте адрес сервера в настройках, чтобы начать мониторинг.";
+    return;
+  }
 
   setDashboardLoading(true);
   document.getElementById("errorBanner").hidden = true;
@@ -260,13 +485,52 @@ async function refresh() {
 
     const chips = document.getElementById("playersList");
     const emptyHint = document.getElementById("playersEmpty");
+    emptyHint.textContent = "Нет данных об игроках (сервер скрывает список или офлайн)";
     chips.innerHTML = "";
     const names = parseNames(data);
     if (names.length) {
       emptyHint.hidden = true;
+      const hoverPreview = canHoverSkinPreview();
       for (const name of names) {
-        const chip = document.createElement("span");
-        chip.textContent = name;
+        const chip = document.createElement("div");
+        chip.className = "player-chip";
+        chip.dataset.player = name;
+        chip.tabIndex = 0;
+        chip.setAttribute("role", "button");
+        chip.setAttribute("aria-label", `Игрок ${name}, открыть скин`);
+
+        const head = document.createElement("canvas");
+        head.className = "player-chip__head";
+        head.width = 28;
+        head.height = 28;
+        head.setAttribute("role", "img");
+        head.setAttribute("aria-hidden", "true");
+
+        await drawHead(head, name);
+
+        if (hoverPreview) {
+          head.addEventListener("mouseenter", (ev) => {
+            void showSkinTooltip(name, ev);
+          });
+          head.addEventListener("mousemove", (ev) => {
+            void showSkinTooltip(name, ev);
+          });
+          head.addEventListener("mouseleave", () => hideSkinTooltip());
+        }
+
+        const label = document.createElement("span");
+        label.className = "player-chip__name";
+        label.textContent = name;
+
+        chip.addEventListener("click", () => void openSkinPreviewDialog(name));
+        chip.addEventListener("keydown", (e) => {
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            void openSkinPreviewDialog(name);
+          }
+        });
+
+        chip.append(head, label);
         chips.appendChild(chip);
       }
     } else {
@@ -370,7 +634,10 @@ function setupUI() {
 
   document.getElementById("detailsOpen").addEventListener("click", () => {
     document.getElementById("detailsDialog").showModal();
+    hideSkinTooltip();
   });
+
+  wireSkinPreviewDialog();
 
   document.getElementById("themeToggle").addEventListener("click", () => {
     const cur = localStorage.getItem(KEYS.theme) || "light";
@@ -400,6 +667,9 @@ function setupUI() {
   document.documentElement.setAttribute("data-theme", localStorage.getItem(KEYS.theme) || "light");
   document.getElementById("notifyToggle").textContent =
     localStorage.getItem(KEYS.notify) === "true" ? "Уведомления: вкл" : "Уведомления: выкл";
+
+  window.addEventListener("scroll", () => hideSkinTooltip(), { passive: true });
+  window.addEventListener("blur", () => hideSkinTooltip());
 }
 
 function restartTimer() {

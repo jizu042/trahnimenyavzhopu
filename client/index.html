@@ -2,7 +2,10 @@
 <html lang="ru" data-theme="light">
   <head>
     <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=5"
+    />
     <title>Minecraft Server Monitor</title>
     <link rel="stylesheet" href="./styles.css" />
   </head>
@@ -19,10 +22,6 @@
     <main class="container">
       <section class="dashboard" id="dashboard" aria-live="polite" aria-busy="false">
         <div class="dashboard__glow" aria-hidden="true"></div>
-        <div class="dashboard__loading" id="dashboardLoading" hidden>
-          <div class="spinner" role="status" aria-label="Загрузка"></div>
-          <span class="dashboard__loading-text">Получаем статус…</span>
-        </div>
 
         <div class="dashboard__inner">
           <div class="dashboard__top">
@@ -65,6 +64,32 @@
       <p id="errorBanner" class="banner error" hidden role="alert"></p>
     </main>
 
+    <div id="skinTooltip" class="skin-tooltip" hidden aria-hidden="true">
+      <div class="skin-tooltip__head">
+        <div class="skin-tooltip__title mono" id="skinTooltipTitle">—</div>
+        <div class="skin-tooltip__sub muted">Ely.by · превью</div>
+      </div>
+      <div class="skin-tooltip__body">
+        <canvas id="skinTooltipCanvas" width="240" height="300"></canvas>
+      </div>
+      <div class="skin-tooltip__foot muted">ПК: наведите на голову · телефон: нажмите на игрока</div>
+    </div>
+
+    <dialog id="skinPreviewDialog" class="dialog skin-dialog">
+      <form method="dialog" class="skin-dialog__form">
+        <div class="dialog__head skin-dialog__bar">
+          <h2 id="skinDialogTitle" class="mono skin-dialog__title">—</h2>
+          <button type="submit" class="btn ghost skin-dialog__close" value="close" aria-label="Закрыть">
+            ✕
+          </button>
+        </div>
+        <div class="skin-dialog__body">
+          <canvas id="skinDialogCanvas" width="280" height="340"></canvas>
+          <p class="muted skin-dialog__hint">Скин через Ely.by (через ваш бэкенд). Закрыть — ✕ или снаружи.</p>
+        </div>
+      </form>
+    </dialog>
+
     <dialog id="detailsDialog" class="dialog dialog--wide">
       <form method="dialog" class="dialog__form">
         <div class="dialog__head">
@@ -93,7 +118,10 @@
     <dialog id="settingsDialog" class="dialog">
       <form id="settingsForm" method="dialog">
         <h3>Настройки</h3>
-        <label>Адрес сервера<input id="setAddress" required /></label>
+        <label
+          >Адрес сервера
+          <input id="setAddress" required placeholder="play.example.com:25565" autocomplete="off"
+        /></label>
         <label
           >API Base (бэкенд Render, не статика)
           <input
@@ -106,7 +134,8 @@
             aria-describedby="apiBaseHint"
           />
           <span id="apiBaseHint" class="hint"
-            >URL <strong>веб-сервиса</strong> (Node), не статического сайта.</span
+            >URL <strong>веб-сервиса</strong> (Node), не статического сайта. Скины Ely.by загружаются через
+            <span class="mono">/api/v1/skin/&lt;ник&gt;</span> на этом же бэкенде.</span
           ></label
         >
         <label>Интервал опроса (сек)<input id="setInterval" type="number" min="5" max="3600" required /></label>

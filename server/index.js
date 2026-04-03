@@ -18,6 +18,7 @@ const ISMCSERVER_API_BASE =
   process.env.ISMCSERVER_API_BASE || "https://api.ismcserver.online";
 const API_TIMEOUT_MS = Number(process.env.API_TIMEOUT_MS || 9000);
 const REALTIME_CHECK_TIMEOUT_MS = Number(process.env.REALTIME_CHECK_TIMEOUT_MS || 1500);
+const ELY_SKIN_BASE = process.env.ELY_SKIN_BASE || "https://skinsystem.ely.by/skins";
 
 // In-memory state to estimate server \"online since\" time.
 // Important: upstream APIs do not provide real uptime.
@@ -69,7 +70,12 @@ function realtimeTcpOnline(address) {
 }
 
 app.set("trust proxy", 1);
-app.use(helmet());
+app.use(
+  helmet({
+    // Allow cross-origin use of proxied skin PNGs (canvas / WebGL texture uploads).
+    crossOriginResourcePolicy: { policy: "cross-origin" }
+  })
+);
 app.use(express.json({ limit: "64kb" }));
 app.use(
   cors({
@@ -173,7 +179,7 @@ function rootPayload() {
   return {
     service: "mc-monitor-server",
     message: "Use GET /api/v1/status?address=host:port or /api/v1/health",
-    endpoints: ["/ping", "/api/v1/health", "/api/v1/status"]
+    endpoints: ["/ping", "/api/v1/health", "/api/v1/status", "/api/v1/skin/:username"]
   };
 }
 app.get("/", (req, res) => {
@@ -194,6 +200,35 @@ app.get("/api/v1/health", (req, res) => {
     env: NODE_ENV,
     uptimeSec: Math.round(process.uptime())
   });
+});
+
+/**
+ * Proxy Ely.by skin PNG so the browser can use it in canvas/WebGL without CORS taint.
+ * GET /api/v1/skin/:username
+ */
+app.get("/api/v1/skin/:username", async (req, res) => {
+  const raw = String(req.params.username || "").trim();
+  if (!/^[a-zA-Z0-9_]{1,16}$/.test(raw)) {
+    return sendErr(res, 400, "BAD_USERNAME", "Invalid username");
+  }
+  const url = `${ELY_SKIN_BASE}/${encodeURIComponent(raw)}.png`;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), API_TIMEOUT_MS);
+  try {
+    const upstream = await fetch(url, { redirect: "follow", signal: controller.signal });
+    if (!upstream.ok) {
+      return sendErr(res, upstream.status === 404 ? 404 : 502, "SKIN_UPSTREAM", `HTTP ${upstream.status}`);
+    }
+    const buf = Buffer.from(await upstream.arrayBuffer());
+    res.setHeader("Content-Type", "image/png");
+    res.setHeader("Cache-Control", "public, max-age=3600");
+    res.setHeader("Access-Control-Allow-Origin", "*");
+    return res.status(200).send(buf);
+  } catch (e) {
+    return sendErr(res, 502, "SKIN_FETCH_FAILED", "Skin fetch failed");
+  } finally {
+    clearTimeout(timeout);
+  }
 });
 
 /**
