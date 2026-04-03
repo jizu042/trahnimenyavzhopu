@@ -221,6 +221,10 @@ body {
   .metrics {
     grid-template-columns: 1fr;
   }
+  .metric__value {
+    font-size: 1.65rem;
+    word-break: break-word;
+  }
 }
 .metric {
   padding: 18px 16px;

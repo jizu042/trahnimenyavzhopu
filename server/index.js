@@ -3,6 +3,7 @@ const helmet = require("helmet");
 const cors = require("cors");
 const rateLimit = require("express-rate-limit");
 const morgan = require("morgan");
+const net = require("net");
 
 /**
  * @typedef {{success:boolean,data:any,error:any,meta:any}} ApiEnvelope
@@ -16,12 +17,56 @@ const MCSTATUS_API_BASE = process.env.MCSTATUS_API_BASE || "https://api.mcstatus
 const ISMCSERVER_API_BASE =
   process.env.ISMCSERVER_API_BASE || "https://api.ismcserver.online";
 const API_TIMEOUT_MS = Number(process.env.API_TIMEOUT_MS || 9000);
+const REALTIME_CHECK_TIMEOUT_MS = Number(process.env.REALTIME_CHECK_TIMEOUT_MS || 1500);
 
 // In-memory state to estimate server \"online since\" time.
 // Important: upstream APIs do not provide real uptime.
 // This is the best possible approximation without a persistent data store.
 /** @type {Map<string, { lastOnline: boolean | null, onlineSinceMs: number | null }>} */
 const presence = new Map();
+
+/**
+ * @param {string} address
+ * @returns {{host: string, port: number} | null}
+ */
+function parseHostPort(address) {
+  const raw = String(address || "").trim();
+  if (!raw) return null;
+  const [host, portRaw] = raw.split(":");
+  if (!host) return null;
+  const port = portRaw ? Number(portRaw) : 25565;
+  if (!Number.isFinite(port) || port < 1 || port > 65535) return null;
+  return { host, port };
+}
+
+/**
+ * Realtime TCP connectivity check (bypasses upstream API caching).
+ * @param {string} address
+ * @returns {Promise<boolean|null>} true/false, null if invalid input
+ */
+function realtimeTcpOnline(address) {
+  const hp = parseHostPort(address);
+  if (!hp) return Promise.resolve(null);
+  return new Promise((resolve) => {
+    const socket = new net.Socket();
+    let done = false;
+    const finish = (val) => {
+      if (done) return;
+      done = true;
+      try {
+        socket.destroy();
+      } catch {
+        // ignore
+      }
+      resolve(val);
+    };
+    socket.setTimeout(REALTIME_CHECK_TIMEOUT_MS);
+    socket.once("connect", () => finish(true));
+    socket.once("timeout", () => finish(false));
+    socket.once("error", () => finish(false));
+    socket.connect(hp.port, hp.host);
+  });
+}
 
 app.set("trust proxy", 1);
 app.use(helmet());
@@ -171,6 +216,7 @@ app.get("/api/v1/status", async (req, res) => {
   let ismc = null;
   let ismcError = null;
   let startedAt = Date.now();
+  let realtimeOnline = null;
 
   try {
     const out = await fetchJsonWithTimeout(mcstatusUrl);
@@ -178,6 +224,12 @@ app.get("/api/v1/status", async (req, res) => {
     else mcstatusError = `HTTP ${out.status}`;
   } catch (e) {
     mcstatusError = String(e && e.message ? e.message : e);
+  }
+
+  try {
+    realtimeOnline = await realtimeTcpOnline(address);
+  } catch {
+    realtimeOnline = null;
   }
 
   if (token) {
@@ -198,7 +250,10 @@ app.get("/api/v1/status", async (req, res) => {
   }
 
   const latencyMs = Date.now() - startedAt;
-  const online = mcstatus?.online ?? ismc?.online ?? null;
+  const upstreamOnline = mcstatus?.online ?? ismc?.online ?? null;
+  // Prefer realtime check to avoid upstream caching delays.
+  const online =
+    realtimeOnline === true ? true : realtimeOnline === false ? false : upstreamOnline ?? null;
   const playersOnline = ismc?.players?.online ?? mcstatus?.players?.online ?? null;
   const playersMax = ismc?.players?.max ?? mcstatus?.players?.max ?? null;
   const playerNames = Array.isArray(ismc?.players?.list)
@@ -240,6 +295,7 @@ app.get("/api/v1/status", async (req, res) => {
       pingMs: latencyMs,
       onlineSinceMs,
       uptimeMs,
+      realtime: { tcpOnline: realtimeOnline },
       upstream: { mcstatus, ismc },
       upstreamErrors: { mcstatus: mcstatusError, ismc: ismcError }
     },
