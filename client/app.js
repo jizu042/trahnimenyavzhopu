@@ -5,12 +5,21 @@ const KEYS = {
   lastOnline: "monitor_last_online"
 };
 
+const LS_ONLINE_SINCE = "monitor_online_since_v1";
+
 const DEFAULTS = {
   address: "143.14.50.57:25566",
   apiBase: "",
   token: "",
   intervalSec: 10
 };
+
+/** @type {string | null} */
+let trackedAddress = null;
+/** @type {boolean | null} */
+let lastPollOnline = null;
+/** @type {ReturnType<typeof setInterval> | null} */
+let pollTimer = null;
 
 function getSettings() {
   try {
@@ -22,6 +31,62 @@ function getSettings() {
 
 function saveSettings(next) {
   localStorage.setItem(KEYS.settings, JSON.stringify(next));
+}
+
+/**
+ * @param {string} address
+ * @returns {number | null}
+ */
+function getOnlineSince(address) {
+  try {
+    const raw = localStorage.getItem(LS_ONLINE_SINCE);
+    if (!raw) return null;
+    const o = JSON.parse(raw);
+    if (o.address !== address) return null;
+    return typeof o.startedAt === "number" ? o.startedAt : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * @param {string} address
+ * @param {number} startedAt
+ */
+function setOnlineSince(address, startedAt) {
+  localStorage.setItem(LS_ONLINE_SINCE, JSON.stringify({ address, startedAt }));
+}
+
+function clearOnlineSince() {
+  localStorage.removeItem(LS_ONLINE_SINCE);
+}
+
+/**
+ * @param {number} ms
+ */
+function formatDuration(ms) {
+  if (ms < 0) ms = 0;
+  const totalSec = Math.floor(ms / 1000);
+  const days = Math.floor(totalSec / 86400);
+  const h = Math.floor((totalSec % 86400) / 3600);
+  const m = Math.floor((totalSec % 3600) / 60);
+  const s = totalSec % 60;
+  if (days > 0) return `${days} д. ${h} ч ${m}м ${s}с`;
+  if (h > 0) return `${h} ч ${m}м ${s}с`;
+  if (m > 0) return `${m}м ${s}с`;
+  return `${s}с`;
+}
+
+function tickUptime() {
+  const el = document.getElementById("uptimeView");
+  if (!el) return;
+  const settings = getSettings();
+  const started = getOnlineSince(settings.address);
+  if (!started || lastPollOnline !== true) {
+    el.textContent = "—";
+    return;
+  }
+  el.textContent = formatDuration(Date.now() - started);
 }
 
 function showToast(message) {
@@ -42,16 +107,16 @@ async function requestNotifyPermission() {
 
 function renderBadge(online) {
   const node = document.getElementById("statusBadge");
-  node.className = "pill";
+  node.className = "pill pill--lg";
   if (online === true) {
     node.classList.add("online");
-    node.textContent = "Online";
+    node.textContent = "Онлайн";
   } else if (online === false) {
     node.classList.add("offline");
-    node.textContent = "Offline";
+    node.textContent = "Оффлайн";
   } else {
     node.classList.add("unknown");
-    node.textContent = "Unknown";
+    node.textContent = "Неизвестно";
   }
 }
 
@@ -69,10 +134,19 @@ function renderRows(tbodyId, rows) {
   }
 }
 
+/**
+ * @param {string} raw
+ */
+function normalizeApiBase(raw) {
+  return String(raw || "")
+    .trim()
+    .replace(/\/+$/, "");
+}
+
 async function fetchStatus(settings) {
   const params = new URLSearchParams({ address: settings.address });
   if (settings.token) params.set("token", settings.token);
-  const base = settings.apiBase || "";
+  const base = normalizeApiBase(settings.apiBase);
   const url = `${base}/api/v1/status?${params.toString()}`;
   const res = await fetch(url);
   const json = await res.json();
@@ -84,35 +158,67 @@ function parseNames(data) {
   return Array.isArray(data?.players?.list) ? data.players.list.filter(Boolean) : [];
 }
 
-function setSkeleton(loading) {
-  document.getElementById("summarySkeleton").hidden = !loading;
+/**
+ * @param {boolean} loading
+ */
+function setDashboardLoading(loading) {
+  const panel = document.getElementById("dashboard");
+  const overlay = document.getElementById("dashboardLoading");
+  if (overlay) overlay.hidden = !loading;
+  if (panel) panel.setAttribute("aria-busy", loading ? "true" : "false");
 }
 
 async function refresh() {
   const settings = getSettings();
-  setSkeleton(true);
+  if (trackedAddress !== null && trackedAddress !== settings.address) {
+    lastPollOnline = null;
+    clearOnlineSince();
+  }
+  trackedAddress = settings.address;
+
+  setDashboardLoading(true);
   document.getElementById("errorBanner").hidden = true;
   try {
     const data = await fetchStatus(settings);
     const online = data.online === true;
+
+    if (online) {
+      if (lastPollOnline !== true) {
+        setOnlineSince(settings.address, Date.now());
+      }
+    } else {
+      clearOnlineSince();
+    }
+    lastPollOnline = online;
+
+    tickUptime();
+
     renderBadge(data.online);
     document.getElementById("addressView").textContent = data.address || settings.address;
-    document.getElementById("versionView").textContent = data.version ? `Version ${data.version}` : "";
-    document.getElementById("pingView").textContent = data.pingMs != null ? `${data.pingMs} ms` : "—";
+
+    document.getElementById("pingView").textContent = data.pingMs != null ? `${data.pingMs} мс` : "—";
     const p = data.players || {};
     document.getElementById("playersView").textContent =
-      p.online != null && p.max != null ? `${p.online}/${p.max}` : p.online ?? "—";
+      p.online != null && p.max != null ? `${p.online} / ${p.max}` : String(p.online ?? "—");
+
     const chips = document.getElementById("playersList");
+    const emptyHint = document.getElementById("playersEmpty");
     chips.innerHTML = "";
     const names = parseNames(data);
     if (names.length) {
+      emptyHint.hidden = true;
       for (const name of names) {
         const chip = document.createElement("span");
         chip.textContent = name;
         chips.appendChild(chip);
       }
+    } else {
+      emptyHint.hidden = false;
     }
-    document.getElementById("motdView").textContent = data.motd || "";
+
+    const ver = data.version ? `Версия: ${data.version}` : "";
+    document.getElementById("versionLine").textContent = ver;
+    document.getElementById("motdLine").textContent = data.motd || "";
 
     renderRows("infoTbody", [
       ["Host", data.upstream?.ismc?.host || data.upstream?.mcstatus?.host],
@@ -150,14 +256,14 @@ async function refresh() {
       ["upstreamErrors.ismc", data.upstreamErrors?.ismc]
     ]);
 
-    document.getElementById("updateHint").textContent = `Updated ${new Date().toLocaleTimeString()}`;
+    document.getElementById("updateHint").textContent = `Обновлено: ${new Date().toLocaleTimeString()}`;
 
     const notifyEnabled = localStorage.getItem(KEYS.notify) === "true";
     const prev = localStorage.getItem(KEYS.lastOnline);
     if (notifyEnabled && prev === "false" && online) {
       if ("Notification" in window && Notification.permission === "granted") {
-        new Notification("Minecraft server ONLINE", {
-          body: `${data.address || settings.address}\nPlayers: ${document.getElementById("playersView").textContent}`
+        new Notification("Сервер Minecraft в сети", {
+          body: `${data.address || settings.address}\nИгроки: ${document.getElementById("playersView").textContent}`
         });
       }
     }
@@ -166,8 +272,11 @@ async function refresh() {
     const banner = document.getElementById("errorBanner");
     banner.hidden = false;
     banner.textContent = String(e && e.message ? e.message : e);
+    lastPollOnline = null;
+    clearOnlineSince();
+    tickUptime();
   } finally {
-    setSkeleton(false);
+    setDashboardLoading(false);
   }
 }
 
@@ -188,15 +297,19 @@ function setupUI() {
     e.preventDefault();
     const next = {
       address: document.getElementById("setAddress").value.trim(),
-      apiBase: document.getElementById("setApiBase").value.trim(),
+      apiBase: normalizeApiBase(document.getElementById("setApiBase").value),
       token: document.getElementById("setToken").value.trim(),
       intervalSec: Math.max(5, Math.min(3600, Number(document.getElementById("setInterval").value) || 10))
     };
     saveSettings(next);
     document.getElementById("settingsDialog").close();
-    showToast("Settings saved");
+    showToast("Настройки сохранены");
     refresh();
     restartTimer();
+  });
+
+  document.getElementById("detailsOpen").addEventListener("click", () => {
+    document.getElementById("detailsDialog").showModal();
   });
 
   document.getElementById("themeToggle").addEventListener("click", () => {
@@ -210,18 +323,18 @@ function setupUI() {
     const enabled = localStorage.getItem(KEYS.notify) === "true";
     if (enabled) {
       localStorage.setItem(KEYS.notify, "false");
-      document.getElementById("notifyToggle").textContent = "Notify: Off";
+      document.getElementById("notifyToggle").textContent = "Уведомления: выкл";
       return;
     }
     const ok = await requestNotifyPermission();
     localStorage.setItem(KEYS.notify, ok ? "true" : "false");
-    document.getElementById("notifyToggle").textContent = ok ? "Notify: On" : "Notify: Off";
-    showToast(ok ? "Notifications enabled" : "Notification permission denied");
+    document.getElementById("notifyToggle").textContent = ok ? "Уведомления: вкл" : "Уведомления: выкл";
+    showToast(ok ? "Уведомления включены" : "Разрешение не выдано");
   });
 
   document.documentElement.setAttribute("data-theme", localStorage.getItem(KEYS.theme) || "light");
   document.getElementById("notifyToggle").textContent =
-    localStorage.getItem(KEYS.notify) === "true" ? "Notify: On" : "Notify: Off";
+    localStorage.getItem(KEYS.notify) === "true" ? "Уведомления: вкл" : "Уведомления: выкл";
 }
 
 function restartTimer() {
@@ -233,6 +346,6 @@ function restartTimer() {
 }
 
 setupUI();
+setInterval(tickUptime, 1000);
 refresh();
 restartTimer();
-

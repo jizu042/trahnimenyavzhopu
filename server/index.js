@@ -117,6 +117,21 @@ async function fetchJsonWithTimeout(url, headers = {}) {
   }
 }
 
+// Root: avoids "backend is broken" confusion when opening the service URL in a browser
+function rootPayload() {
+  return {
+    service: "mc-monitor-server",
+    message: "Use GET /api/v1/status?address=host:port or /api/v1/health",
+    endpoints: ["/ping", "/api/v1/health", "/api/v1/status"]
+  };
+}
+app.get("/", (req, res) => {
+  sendOk(res, 200, rootPayload());
+});
+app.head("/", (req, res) => {
+  res.status(200).end();
+});
+
 // Render anti-sleep endpoint
 app.get("/ping", (req, res) => {
   sendOk(res, 200, { status: "ok", timestamp: new Date().toISOString() });

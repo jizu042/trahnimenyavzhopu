@@ -8,69 +8,112 @@
   </head>
   <body>
     <header class="topbar">
-      <div class="brand">Server Monitor</div>
+      <div class="brand">Монитор сервера</div>
       <div class="actions">
-        <button id="themeToggle" class="btn ghost" aria-label="Toggle theme">Theme</button>
-        <button id="settingsOpen" class="btn ghost" aria-label="Open settings">Settings</button>
-        <button id="notifyToggle" class="btn ghost" aria-label="Toggle notifications">Notify: Off</button>
+        <button id="themeToggle" class="btn ghost" type="button" aria-label="Переключить тему">Тема</button>
+        <button id="settingsOpen" class="btn ghost" type="button" aria-label="Настройки">Настройки</button>
+        <button id="notifyToggle" class="btn ghost" type="button" aria-label="Уведомления">Уведомления: выкл</button>
       </div>
     </header>
 
     <main class="container">
-      <section class="hero" aria-live="polite">
-        <div class="row">
-          <div>
-            <div class="label">Address</div>
-            <h1 id="addressView" class="mono">—</h1>
-            <div id="versionView" class="muted mono"></div>
-          </div>
-          <div class="stat-card">
-            <div class="label">Ping</div>
-            <div id="pingView" class="big mono">—</div>
-          </div>
+      <section class="dashboard" id="dashboard" aria-live="polite" aria-busy="false">
+        <div class="dashboard__glow" aria-hidden="true"></div>
+        <div class="dashboard__loading" id="dashboardLoading" hidden>
+          <div class="spinner" role="status" aria-label="Загрузка"></div>
+          <span class="dashboard__loading-text">Получаем статус…</span>
         </div>
-        <div class="row">
-          <span id="statusBadge" class="pill unknown">—</span>
-          <div class="stat-line">
-            <span class="label">Players</span>
-            <span id="playersView" class="mono strong">—</span>
+
+        <div class="dashboard__inner">
+          <div class="dashboard__top">
+            <div class="dashboard__title">
+              <span class="eyebrow">Адрес</span>
+              <h1 id="addressView" class="dashboard__addr mono">—</h1>
+            </div>
+            <span id="statusBadge" class="pill pill--lg unknown">—</span>
           </div>
+
+          <div class="metrics" role="group" aria-label="Основные показатели">
+            <div class="metric">
+              <span class="metric__label">Пинг</span>
+              <span id="pingView" class="metric__value mono" aria-label="Пинг">—</span>
+            </div>
+            <div class="metric">
+              <span class="metric__label">Игроки</span>
+              <span id="playersView" class="metric__value mono" aria-label="Игроки онлайн">—</span>
+            </div>
+            <div class="metric metric--accent">
+              <span class="metric__label">В сети</span>
+              <span id="uptimeView" class="metric__value mono" aria-label="Время в статусе онлайн">—</span>
+            </div>
+          </div>
+
+          <div class="players-block">
+            <span class="eyebrow">Сейчас на сервере</span>
+            <div id="playersList" class="chips"></div>
+            <p id="playersEmpty" class="players-block__empty muted" hidden>Нет данных об игроках (сервер скрывает список или офлайн)</p>
+          </div>
+
+          <div class="dashboard__actions">
+            <button type="button" id="detailsOpen" class="btn btn-details">Подробнее</button>
+          </div>
+
+          <p id="updateHint" class="update-hint muted"></p>
         </div>
-        <div id="playersList" class="chips"></div>
-        <p id="motdView" class="motd mono"></p>
       </section>
 
-      <section class="panel">
-        <h2>General Info</h2>
-        <div id="summarySkeleton" class="skeleton-list" hidden>
-          <div class="skeleton"></div><div class="skeleton"></div><div class="skeleton"></div>
-        </div>
-        <table class="table" aria-label="General info">
-          <tbody id="infoTbody"></tbody>
-        </table>
-      </section>
-
-      <section class="panel">
-        <h2>Full Server Info</h2>
-        <table class="table">
-          <tbody id="fullInfoTbody"></tbody>
-        </table>
-      </section>
-
-      <p id="errorBanner" class="banner error" hidden></p>
-      <p id="updateHint" class="muted"></p>
+      <p id="errorBanner" class="banner error" hidden role="alert"></p>
     </main>
+
+    <dialog id="detailsDialog" class="dialog dialog--wide">
+      <form method="dialog" class="dialog__form">
+        <div class="dialog__head">
+          <h2>Подробная информация</h2>
+          <button type="submit" class="btn ghost dialog__close" value="close" aria-label="Закрыть">✕</button>
+        </div>
+        <div class="dialog__body">
+          <p id="versionLine" class="muted dialog__version"></p>
+          <p id="motdLine" class="motd dialog__motd mono"></p>
+          <h3 class="dialog__section-title">Общее</h3>
+          <div class="table-wrap">
+            <table class="table">
+              <tbody id="infoTbody"></tbody>
+            </table>
+          </div>
+          <h3 class="dialog__section-title">Полные данные</h3>
+          <div class="table-wrap table-wrap--scroll">
+            <table class="table">
+              <tbody id="fullInfoTbody"></tbody>
+            </table>
+          </div>
+        </div>
+      </form>
+    </dialog>
 
     <dialog id="settingsDialog" class="dialog">
       <form id="settingsForm" method="dialog">
-        <h3>Settings</h3>
-        <label>Server address<input id="setAddress" required /></label>
-        <label>API Base (backend)<input id="setApiBase" required /></label>
-        <label>Poll interval (seconds)<input id="setInterval" type="number" min="5" max="3600" required /></label>
-        <label>IsMcServer token<input id="setToken" type="password" /></label>
+        <h3>Настройки</h3>
+        <label>Адрес сервера<input id="setAddress" required /></label>
+        <label
+          >API Base (бэкенд Render, не статика)
+          <input
+            id="setApiBase"
+            type="url"
+            inputmode="url"
+            autocomplete="off"
+            placeholder="https://your-backend.onrender.com"
+            required
+            aria-describedby="apiBaseHint"
+          />
+          <span id="apiBaseHint" class="hint"
+            >URL <strong>веб-сервиса</strong> (Node), не статического сайта.</span
+          ></label
+        >
+        <label>Интервал опроса (сек)<input id="setInterval" type="number" min="5" max="3600" required /></label>
+        <label>Токен IsMcServer<input id="setToken" type="password" /></label>
         <menu>
-          <button value="cancel" class="btn ghost" type="button" id="settingsCancel">Cancel</button>
-          <button value="default" class="btn" type="submit">Save</button>
+          <button value="cancel" class="btn ghost" type="button" id="settingsCancel">Отмена</button>
+          <button value="default" class="btn" type="submit">Сохранить</button>
         </menu>
       </form>
     </dialog>
@@ -79,4 +122,3 @@
     <script type="module" src="./app.js"></script>
   </body>
 </html>
-
