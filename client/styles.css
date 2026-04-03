@@ -1,0 +1,79 @@
+:root {
+  --bg: #eef2f7;
+  --surface: #ffffff;
+  --text: #0f172a;
+  --muted: #64748b;
+  --border: #d6dde8;
+  --ok-bg: #dcfce7;
+  --ok-fg: #166534;
+  --bad-bg: #fee2e2;
+  --bad-fg: #991b1b;
+  --unk-bg: #e2e8f0;
+  --unk-fg: #334155;
+  --shadow: 0 10px 30px rgba(15, 23, 42, 0.08);
+}
+html[data-theme="dark"] {
+  --bg: #0b1220;
+  --surface: #111827;
+  --text: #e5e7eb;
+  --muted: #94a3b8;
+  --border: #263244;
+  --unk-bg: #1e293b;
+  --unk-fg: #cbd5e1;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+  transition: background 200ms ease, color 200ms ease;
+}
+.mono { font-family: ui-monospace, Consolas, monospace; }
+.topbar {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 12px 16px; border-bottom: 1px solid var(--border); background: var(--surface);
+}
+.brand { font-weight: 700; }
+.actions { display: flex; gap: 8px; }
+.container { max-width: 1200px; margin: 0 auto; padding: 16px; display: grid; gap: 16px; }
+.hero, .panel {
+  background: var(--surface); border: 1px solid var(--border); border-radius: 12px; box-shadow: var(--shadow);
+  padding: 16px;
+}
+.row { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; flex-wrap: wrap; }
+.label { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+h1 { margin: 4px 0; font-size: clamp(24px, 4vw, 44px); line-height: 1.1; }
+.muted { color: var(--muted); font-size: 13px; }
+.stat-card { min-width: 120px; border: 1px solid var(--border); border-radius: 10px; padding: 10px; }
+.big { font-size: clamp(26px, 4vw, 46px); font-weight: 800; line-height: 1; }
+.pill { border-radius: 999px; padding: 6px 12px; font-weight: 700; font-size: 12px; text-transform: uppercase; }
+.pill.online { background: var(--ok-bg); color: var(--ok-fg); }
+.pill.offline { background: var(--bad-bg); color: var(--bad-fg); }
+.pill.unknown { background: var(--unk-bg); color: var(--unk-fg); }
+.stat-line { display: flex; gap: 8px; align-items: baseline; }
+.strong { font-weight: 700; }
+.chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+.chips span { border: 1px solid var(--border); background: var(--surface); border-radius: 999px; padding: 6px 10px; min-height: 32px; }
+.motd { white-space: pre-wrap; margin: 10px 0 0; }
+.table { width: 100%; border-collapse: collapse; font-size: 14px; }
+.table th, .table td { border-bottom: 1px solid var(--border); padding: 10px; text-align: left; vertical-align: top; }
+.table th { width: 34%; color: var(--muted); font-weight: 600; }
+.btn { min-height: 44px; padding: 8px 12px; border-radius: 10px; border: 1px solid var(--border); background: var(--text); color: var(--surface); cursor: pointer; }
+.btn.ghost { background: transparent; color: var(--text); }
+.banner.error { border: 1px solid #fca5a5; background: #fee2e2; color: #7f1d1d; padding: 10px; border-radius: 10px; }
+.dialog { border: 1px solid var(--border); border-radius: 12px; background: var(--surface); color: var(--text); width: min(520px, 96vw); }
+.dialog form { display: grid; gap: 10px; padding: 16px; }
+.dialog label { display: grid; gap: 6px; font-size: 13px; color: var(--muted); }
+.dialog input { min-height: 44px; border: 1px solid var(--border); border-radius: 10px; padding: 8px 10px; }
+menu { display: flex; justify-content: flex-end; gap: 8px; margin: 8px 0 0; padding: 0; }
+.toasts { position: fixed; right: 12px; bottom: 12px; display: grid; gap: 8px; z-index: 999; }
+.toast { background: var(--surface); border: 1px solid var(--border); border-left: 4px solid #2563eb; padding: 10px 12px; border-radius: 10px; min-width: 240px; }
+.skeleton-list { display: grid; gap: 8px; margin-bottom: 10px; }
+.skeleton { height: 16px; border-radius: 8px; background: linear-gradient(90deg, #cfd8e3 0%, #e2e8f0 50%, #cfd8e3 100%); background-size: 200% 100%; animation: shimmer 1s infinite linear; }
+@keyframes shimmer { from { background-position: 200% 0; } to { background-position: -200% 0; } }
+@media (max-width: 640px) {
+  .container { padding: 10px; }
+  .actions { flex-wrap: wrap; }
+}
+

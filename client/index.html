@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="ru" data-theme="light">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Minecraft Server Monitor</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="brand">Server Monitor</div>
+      <div class="actions">
+        <button id="themeToggle" class="btn ghost" aria-label="Toggle theme">Theme</button>
+        <button id="settingsOpen" class="btn ghost" aria-label="Open settings">Settings</button>
+        <button id="notifyToggle" class="btn ghost" aria-label="Toggle notifications">Notify: Off</button>
+      </div>
+    </header>
+
+    <main class="container">
+      <section class="hero" aria-live="polite">
+        <div class="row">
+          <div>
+            <div class="label">Address</div>
+            <h1 id="addressView" class="mono">—</h1>
+            <div id="versionView" class="muted mono"></div>
+          </div>
+          <div class="stat-card">
+            <div class="label">Ping</div>
+            <div id="pingView" class="big mono">—</div>
+          </div>
+        </div>
+        <div class="row">
+          <span id="statusBadge" class="pill unknown">—</span>
+          <div class="stat-line">
+            <span class="label">Players</span>
+            <span id="playersView" class="mono strong">—</span>
+          </div>
+        </div>
+        <div id="playersList" class="chips"></div>
+        <p id="motdView" class="motd mono"></p>
+      </section>
+
+      <section class="panel">
+        <h2>General Info</h2>
+        <div id="summarySkeleton" class="skeleton-list" hidden>
+          <div class="skeleton"></div><div class="skeleton"></div><div class="skeleton"></div>
+        </div>
+        <table class="table" aria-label="General info">
+          <tbody id="infoTbody"></tbody>
+        </table>
+      </section>
+
+      <section class="panel">
+        <h2>Full Server Info</h2>
+        <table class="table">
+          <tbody id="fullInfoTbody"></tbody>
+        </table>
+      </section>
+
+      <p id="errorBanner" class="banner error" hidden></p>
+      <p id="updateHint" class="muted"></p>
+    </main>
+
+    <dialog id="settingsDialog" class="dialog">
+      <form id="settingsForm" method="dialog">
+        <h3>Settings</h3>
+        <label>Server address<input id="setAddress" required /></label>
+        <label>API Base (backend)<input id="setApiBase" required /></label>
+        <label>Poll interval (seconds)<input id="setInterval" type="number" min="5" max="3600" required /></label>
+        <label>IsMcServer token<input id="setToken" type="password" /></label>
+        <menu>
+          <button value="cancel" class="btn ghost" type="button" id="settingsCancel">Cancel</button>
+          <button value="default" class="btn" type="submit">Save</button>
+        </menu>
+      </form>
+    </dialog>
+
+    <div id="toasts" class="toasts" aria-live="assertive" aria-atomic="true"></div>
+    <script type="module" src="./app.js"></script>
+  </body>
+</html>
+
