@@ -235,8 +235,12 @@ async function refresh() {
     const data = await fetchStatus(settings);
     const online = data.online === true;
 
+    // Prefer backend-provided onlineSinceMs (more accurate than \"since page opened\").
     if (online) {
-      if (lastPollOnline !== true) {
+      const fromBackend = typeof data.onlineSinceMs === "number" ? data.onlineSinceMs : null;
+      if (fromBackend) {
+        setOnlineSince(settings.address, fromBackend);
+      } else if (lastPollOnline !== true) {
         setOnlineSince(settings.address, Date.now());
       }
     } else {

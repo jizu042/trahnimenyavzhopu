@@ -17,6 +17,12 @@ const ISMCSERVER_API_BASE =
   process.env.ISMCSERVER_API_BASE || "https://api.ismcserver.online";
 const API_TIMEOUT_MS = Number(process.env.API_TIMEOUT_MS || 9000);
 
+// In-memory state to estimate server \"online since\" time.
+// Important: upstream APIs do not provide real uptime.
+// This is the best possible approximation without a persistent data store.
+/** @type {Map<string, { lastOnline: boolean | null, onlineSinceMs: number | null }>} */
+const presence = new Map();
+
 app.set("trust proxy", 1);
 app.use(helmet());
 app.use(express.json({ limit: "64kb" }));
@@ -203,6 +209,20 @@ app.get("/api/v1/status", async (req, res) => {
           .filter(Boolean)
       : [];
 
+  // Update presence state
+  const prev = presence.get(address) || { lastOnline: null, onlineSinceMs: null };
+  const now = Date.now();
+  let onlineSinceMs = prev.onlineSinceMs;
+  if (online === true) {
+    // Start counting when we first observe the server as online after a non-online state.
+    if (prev.lastOnline !== true) onlineSinceMs = now;
+  } else {
+    onlineSinceMs = null;
+  }
+  presence.set(address, { lastOnline: online === true ? true : online === false ? false : null, onlineSinceMs });
+
+  const uptimeMs = online === true && onlineSinceMs ? now - onlineSinceMs : null;
+
   return sendOk(
     res,
     200,
@@ -218,6 +238,8 @@ app.get("/api/v1/status", async (req, res) => {
       motd:
         mcstatus?.motd?.clean || ismc?.motd?.clean || mcstatus?.motd?.raw || ismc?.motd?.raw || "",
       pingMs: latencyMs,
+      onlineSinceMs,
+      uptimeMs,
       upstream: { mcstatus, ismc },
       upstreamErrors: { mcstatus: mcstatusError, ismc: ismcError }
     },
