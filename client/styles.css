@@ -113,6 +113,9 @@ body {
   background: color-mix(in srgb, var(--surface) 88%, transparent);
   backdrop-filter: blur(6px);
 }
+.dashboard__loading[hidden] {
+  display: none !important;
+}
 .dashboard__loading-text {
   font-size: 0.9rem;
   color: var(--muted);
