@@ -20,6 +20,11 @@ let trackedAddress = null;
 let lastPollOnline = null;
 /** @type {ReturnType<typeof setInterval> | null} */
 let pollTimer = null;
+let hasRenderedOnce = false;
+/** @type {ReturnType<typeof setTimeout> | null} */
+let loadingDelayTimer = null;
+/** @type {number | null} */
+let loadingShownAt = null;
 
 function getSettings() {
   try {
@@ -164,8 +169,56 @@ function parseNames(data) {
 function setDashboardLoading(loading) {
   const panel = document.getElementById("dashboard");
   const overlay = document.getElementById("dashboardLoading");
-  if (overlay) overlay.hidden = !loading;
+  const badge = document.getElementById("statusBadge");
+
   if (panel) panel.setAttribute("aria-busy", loading ? "true" : "false");
+
+  // Always show a subtle refresh indicator, but avoid an annoying full overlay
+  // on every 10s poll. The overlay is only used for the very first render or
+  // if a request takes noticeably long.
+  if (badge) badge.classList.toggle("is-refreshing", loading);
+
+  if (!overlay) return;
+
+  if (!loading) {
+    if (loadingDelayTimer) {
+      clearTimeout(loadingDelayTimer);
+      loadingDelayTimer = null;
+    }
+    // Prevent flash: if we already showed it, keep for a minimum duration.
+    if (loadingShownAt != null) {
+      const elapsed = Date.now() - loadingShownAt;
+      const minVisible = 450;
+      if (elapsed < minVisible) {
+        setTimeout(() => {
+          overlay.hidden = true;
+          loadingShownAt = null;
+        }, minVisible - elapsed);
+        return;
+      }
+    }
+    overlay.hidden = true;
+    loadingShownAt = null;
+    return;
+  }
+
+  // Loading=true
+  if (hasRenderedOnce) {
+    // Only show overlay if the request is slow.
+    if (loadingDelayTimer) clearTimeout(loadingDelayTimer);
+    loadingDelayTimer = setTimeout(() => {
+      overlay.hidden = false;
+      loadingShownAt = Date.now();
+    }, 700);
+    return;
+  }
+
+  // First paint: show quickly (still with a tiny delay to avoid micro-flash)
+  if (loadingDelayTimer) clearTimeout(loadingDelayTimer);
+  loadingDelayTimer = setTimeout(() => {
+    overlay.hidden = false;
+    loadingShownAt = Date.now();
+  }, 150);
 }
 
 async function refresh() {
@@ -259,15 +312,18 @@ async function refresh() {
     document.getElementById("updateHint").textContent = `Обновлено: ${new Date().toLocaleTimeString()}`;
 
     const notifyEnabled = localStorage.getItem(KEYS.notify) === "true";
-    const prev = localStorage.getItem(KEYS.lastOnline);
-    if (notifyEnabled && prev === "false" && online) {
+    const prev = localStorage.getItem(KEYS.lastOnline); // "true" | "false" | null
+    // Notify when we transition into online. Treat missing prev as not-online.
+    if (notifyEnabled && prev !== "true" && online) {
       if ("Notification" in window && Notification.permission === "granted") {
         new Notification("Сервер Minecraft в сети", {
           body: `${data.address || settings.address}\nИгроки: ${document.getElementById("playersView").textContent}`
         });
       }
     }
-    localStorage.setItem(KEYS.lastOnline, String(Boolean(online)));
+    // Only update transition state on successful fetch; avoids false triggers on network errors.
+    localStorage.setItem(KEYS.lastOnline, online ? "true" : "false");
+    hasRenderedOnce = true;
   } catch (e) {
     const banner = document.getElementById("errorBanner");
     banner.hidden = false;
@@ -329,7 +385,12 @@ function setupUI() {
     const ok = await requestNotifyPermission();
     localStorage.setItem(KEYS.notify, ok ? "true" : "false");
     document.getElementById("notifyToggle").textContent = ok ? "Уведомления: вкл" : "Уведомления: выкл";
-    showToast(ok ? "Уведомления включены" : "Разрешение не выдано");
+    if (ok) {
+      // Initialize transition state from current known value (if any) to avoid confusion.
+      if (lastPollOnline === true) localStorage.setItem(KEYS.lastOnline, "true");
+      else if (lastPollOnline === false) localStorage.setItem(KEYS.lastOnline, "false");
+    }
+    showToast(ok ? "Уведомления включены (проверьте, что сайт разрешён в системе)" : "Разрешение не выдано");
   });
 
   document.documentElement.setAttribute("data-theme", localStorage.getItem(KEYS.theme) || "light");
