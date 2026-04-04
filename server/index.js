@@ -9,6 +9,8 @@ const pgSession = require("connect-pg-simple")(session);
 const passport = require("./auth/passport");
 const authRoutes = require("./auth/routes");
 const pool = require("./db/connection");
+const sessionTracker = require("./utils/session-tracker");
+const { upsertServerUptime, getServerUptime, saveServerMetrics } = require("./db/queries/metrics");
 const net = require("net");
 
 /**
@@ -48,17 +50,20 @@ function parseHostPort(address) {
 }
 
 /**
- * Realtime TCP connectivity check (bypasses upstream API caching).
+ * Realtime TCP connectivity check with ping measurement.
  * @param {string} address
- * @returns {Promise<boolean|null>} true/false, null if invalid input
+ * @returns {Promise<{online: boolean|null, pingMs: number|null}>}
  */
 function realtimeTcpOnline(address) {
   const hp = parseHostPort(address);
-  if (!hp) return Promise.resolve(null);
+  if (!hp) return Promise.resolve({ online: null, pingMs: null });
+
   return new Promise((resolve) => {
     const socket = new net.Socket();
     let done = false;
-    const finish = (val) => {
+    const startTime = Date.now();
+
+    const finish = (online, pingMs = null) => {
       if (done) return;
       done = true;
       try {
@@ -66,12 +71,16 @@ function realtimeTcpOnline(address) {
       } catch {
         // ignore
       }
-      resolve(val);
+      resolve({ online, pingMs });
     };
+
     socket.setTimeout(REALTIME_CHECK_TIMEOUT_MS);
-    socket.once("connect", () => finish(true));
-    socket.once("timeout", () => finish(false));
-    socket.once("error", () => finish(false));
+    socket.once("connect", () => {
+      const pingMs = Date.now() - startTime;
+      finish(true, pingMs);
+    });
+    socket.once("timeout", () => finish(false, null));
+    socket.once("error", () => finish(false, null));
     socket.connect(hp.port, hp.host);
   });
 }
@@ -233,6 +242,14 @@ app.use("/auth", authRoutes);
 const chatRoutes = require("./chat/routes");
 app.use("/api/v1/chat", chatRoutes);
 
+// Stats routes
+const statsRoutes = require("./stats/routes");
+app.use("/api/v1/stats", statsRoutes);
+
+// Admin routes
+const adminRoutes = require("./admin/routes");
+app.use("/api/v1/admin", adminRoutes);
+
 app.get("/api/v1/health", (req, res) => {
   sendOk(res, 200, {
     status: "ok",
@@ -291,6 +308,7 @@ app.get("/api/v1/status", async (req, res) => {
   let ismcError = null;
   let startedAt = Date.now();
   let realtimeOnline = null;
+  let realPingMs = null;
 
   try {
     const out = await fetchJsonWithTimeout(mcstatusUrl);
@@ -301,9 +319,12 @@ app.get("/api/v1/status", async (req, res) => {
   }
 
   try {
-    realtimeOnline = await realtimeTcpOnline(address);
+    const result = await realtimeTcpOnline(address);
+    realtimeOnline = result.online;
+    realPingMs = result.pingMs;
   } catch {
     realtimeOnline = null;
+    realPingMs = null;
   }
 
   if (token) {
@@ -325,7 +346,6 @@ app.get("/api/v1/status", async (req, res) => {
 
   const latencyMs = Date.now() - startedAt;
   const upstreamOnline = mcstatus?.online ?? ismc?.online ?? null;
-  // Prefer realtime check to avoid upstream caching delays.
   const online =
     realtimeOnline === true ? true : realtimeOnline === false ? false : upstreamOnline ?? null;
   const playersOnline = ismc?.players?.online ?? mcstatus?.players?.online ?? null;
@@ -338,19 +358,51 @@ app.get("/api/v1/status", async (req, res) => {
           .filter(Boolean)
       : [];
 
-  // Update presence state
-  const prev = presence.get(address) || { lastOnline: null, onlineSinceMs: null };
+  // Обновить uptime в БД
   const now = Date.now();
-  let onlineSinceMs = prev.onlineSinceMs;
-  if (online === true) {
-    // Start counting when we first observe the server as online after a non-online state.
-    if (prev.lastOnline !== true) onlineSinceMs = now;
-  } else {
-    onlineSinceMs = null;
-  }
-  presence.set(address, { lastOnline: online === true ? true : online === false ? false : null, onlineSinceMs });
+  let dbUptime = null;
+  try {
+    const existingUptime = await getServerUptime(address);
+    let onlineSince = existingUptime?.online_since ? new Date(existingUptime.online_since) : null;
 
-  const uptimeMs = online === true && onlineSinceMs ? now - onlineSinceMs : null;
+    if (online === true) {
+      if (!existingUptime || existingUptime.online !== true) {
+        onlineSince = new Date(now);
+      }
+    } else {
+      onlineSince = null;
+    }
+
+    dbUptime = await upsertServerUptime(address, online === true, onlineSince, new Date(now));
+  } catch (error) {
+    console.error("Failed to update server uptime:", error);
+  }
+
+  const uptimeMs =
+    online === true && dbUptime?.online_since
+      ? now - new Date(dbUptime.online_since).getTime()
+      : null;
+
+  // Сохранить метрики в БД
+  try {
+    await saveServerMetrics(
+      address,
+      online === true,
+      realPingMs || latencyMs,
+      playersOnline,
+      playersMax,
+      mcstatus?.version?.name_clean || mcstatus?.version?.name_raw || ismc?.version?.string || null
+    );
+  } catch (error) {
+    console.error("Failed to save server metrics:", error);
+  }
+
+  // Обновить сессии игроков
+  try {
+    await sessionTracker.updateSessions(address, playerNames);
+  } catch (error) {
+    console.error("Failed to update player sessions:", error);
+  }
 
   return sendOk(
     res,
@@ -366,10 +418,10 @@ app.get("/api/v1/status", async (req, res) => {
         null,
       motd:
         mcstatus?.motd?.clean || ismc?.motd?.clean || mcstatus?.motd?.raw || ismc?.motd?.raw || "",
-      pingMs: latencyMs,
-      onlineSinceMs,
+      pingMs: realPingMs || latencyMs,
+      onlineSinceMs: dbUptime?.online_since ? new Date(dbUptime.online_since).getTime() : null,
       uptimeMs,
-      realtime: { tcpOnline: realtimeOnline },
+      realtime: { tcpOnline: realtimeOnline, tcpPingMs: realPingMs },
       upstream: { mcstatus, ismc },
       upstreamErrors: { mcstatus: mcstatusError, ismc: ismcError }
     },

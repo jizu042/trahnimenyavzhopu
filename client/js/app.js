@@ -1,6 +1,7 @@
 import { initAuth, isAuthenticated, getUser, login, logout, onAuthChange } from "./auth.js";
 import { initChat, sendMessage, onMessage, onConnectionChange, loadChatHistory } from "./chat.js";
 import { getServerStatus } from "./api.js";
+import { initStreamerMode } from "./streamer-mode.js";
 
 const KEYS = {
   settings: "monitor_settings",
@@ -692,6 +693,7 @@ async function init() {
   setupTabs();
   setupChat();
   setupAuthUI();
+  initStreamerMode();
   setInterval(tickUptime, 1000);
   refresh();
   restartTimer();
