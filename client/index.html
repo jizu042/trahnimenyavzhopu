@@ -8,18 +8,29 @@
     />
     <title>Minecraft Server Monitor</title>
     <link rel="stylesheet" href="./styles.css" />
+    <link rel="stylesheet" href="./styles/chat.css" />
   </head>
   <body>
     <header class="topbar">
       <div class="brand">Монитор сервера</div>
       <div class="actions">
         <button id="themeToggle" class="btn ghost" type="button" aria-label="Переключить тему">Тема</button>
+        <button id="loginBtn" class="btn ghost" type="button" aria-label="Войти" style="display:none">Войти</button>
+        <button id="logoutBtn" class="btn ghost" type="button" aria-label="Выйти" style="display:none">Выйти</button>
         <button id="settingsOpen" class="btn ghost" type="button" aria-label="Настройки">Настройки</button>
         <button id="notifyToggle" class="btn ghost" type="button" aria-label="Уведомления">Уведомления: выкл</button>
       </div>
     </header>
 
     <main class="container">
+      <!-- Табы навигации -->
+      <nav class="dashboard-tabs" style="display:flex;gap:12px;margin-bottom:20px;border-bottom:1px solid var(--border);padding-bottom:12px;">
+        <button id="tabMain" class="btn ghost" data-tab="main" style="border-bottom:2px solid var(--accent)">Главная</button>
+        <button id="tabChat" class="btn ghost" data-tab="chat">Чат</button>
+      </nav>
+
+      <!-- Таб: Главная -->
+      <div id="contentMain" class="tab-content" data-tab-id="main">
       <section class="dashboard" id="dashboard" aria-live="polite" aria-busy="false">
         <div class="dashboard__glow" aria-hidden="true"></div>
 
@@ -62,6 +73,34 @@
       </section>
 
       <p id="errorBanner" class="banner error" hidden role="alert"></p>
+      </div>
+
+      <!-- Таб: Чат -->
+      <div id="contentChat" class="tab-content" data-tab-id="chat" style="display:none">
+        <div class="chat-container">
+          <div class="chat-header">
+            <h3>Чат сервера</h3>
+            <div class="chat-status">
+              <span class="chat-status-dot" id="chatStatusDot"></span>
+              <span id="chatStatusText">Подключение...</span>
+            </div>
+          </div>
+          <div class="chat-messages" id="chatMessages">
+            <div class="chat-empty">Загрузка сообщений...</div>
+          </div>
+          <div class="chat-input-container" id="chatInputContainer">
+            <div class="chat-login-prompt" id="chatLoginPrompt" style="display:none">
+              <h3>Войдите, чтобы писать в чат</h3>
+              <p>Авторизуйтесь через Ely.by для отправки сообщений</p>
+              <button class="chat-login-btn" id="chatLoginBtn">Войти через Ely.by</button>
+            </div>
+            <div class="chat-input-wrapper" id="chatInputWrapper" style="display:none">
+              <textarea class="chat-input" id="chatInput" placeholder="Введите сообщение..." rows="1" maxlength="500"></textarea>
+              <button class="chat-send-btn" id="chatSendBtn">Отправить</button>
+            </div>
+          </div>
+        </div>
+      </div>
     </main>
 
     <div id="skinTooltip" class="skin-tooltip" hidden aria-hidden="true">
@@ -148,6 +187,6 @@
     </dialog>
 
     <div id="toasts" class="toasts" aria-live="assertive" aria-atomic="true"></div>
-    <script type="module" src="./app.js"></script>
+    <script type="module" src="./js/app.js"></script>
   </body>
 </html>

@@ -1,8 +1,14 @@
+require("dotenv").config();
 const express = require("express");
 const helmet = require("helmet");
 const cors = require("cors");
 const rateLimit = require("express-rate-limit");
 const morgan = require("morgan");
+const session = require("express-session");
+const pgSession = require("connect-pg-simple")(session);
+const passport = require("./auth/passport");
+const authRoutes = require("./auth/routes");
+const pool = require("./db/connection");
 const net = require("net");
 
 /**
@@ -19,6 +25,7 @@ const ISMCSERVER_API_BASE =
 const API_TIMEOUT_MS = Number(process.env.API_TIMEOUT_MS || 9000);
 const REALTIME_CHECK_TIMEOUT_MS = Number(process.env.REALTIME_CHECK_TIMEOUT_MS || 1500);
 const ELY_SKIN_BASE = process.env.ELY_SKIN_BASE || "https://skinsystem.ely.by/skins";
+const SESSION_SECRET = process.env.SESSION_SECRET || "change-this-secret-in-production";
 
 // In-memory state to estimate server \"online since\" time.
 // Important: upstream APIs do not provide real uptime.
@@ -80,9 +87,34 @@ app.use(express.json({ limit: "64kb" }));
 app.use(
   cors({
     origin: FRONTEND_URL === "*" ? "*" : FRONTEND_URL.split(",").map((s) => s.trim()),
-    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"]
+    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    credentials: true
   })
 );
+
+// Session middleware (должен быть перед passport)
+app.use(
+  session({
+    store: new pgSession({
+      pool,
+      tableName: "session",
+      createTableIfMissing: false
+    }),
+    secret: SESSION_SECRET,
+    resave: false,
+    saveUninitialized: false,
+    cookie: {
+      maxAge: 30 * 24 * 60 * 60 * 1000, // 30 дней
+      httpOnly: true,
+      secure: NODE_ENV === "production",
+      sameSite: NODE_ENV === "production" ? "none" : "lax"
+    }
+  })
+);
+
+// Passport middleware
+app.use(passport.initialize());
+app.use(passport.session());
 app.use(
   morgan(NODE_ENV === "production" ? "combined" : "dev", {
     skip: () => NODE_ENV === "test"
@@ -193,6 +225,13 @@ app.head("/", (req, res) => {
 app.get("/ping", (req, res) => {
   sendOk(res, 200, { status: "ok", timestamp: new Date().toISOString() });
 });
+
+// Auth routes
+app.use("/auth", authRoutes);
+
+// Chat routes
+const chatRoutes = require("./chat/routes");
+app.use("/api/v1/chat", chatRoutes);
 
 app.get("/api/v1/health", (req, res) => {
   sendOk(res, 200, {
@@ -353,9 +392,8 @@ app.use((err, req, res, next) => {
   );
 });
 
-app.listen(PORT, () => {
-  // Structured-ish startup line
-  // eslint-disable-next-line no-console
+// Создать HTTP сервер
+const server = app.listen(PORT, () => {
   console.log(
     JSON.stringify({
       level: "info",
@@ -365,4 +403,29 @@ app.listen(PORT, () => {
     })
   );
 });
+
+// Инициализировать WebSocket
+const { initWebSocket } = require("./chat/websocket");
+const sessionMiddleware = session({
+  store: new pgSession({
+    pool,
+    tableName: "session",
+    createTableIfMissing: false
+  }),
+  secret: SESSION_SECRET,
+  resave: false,
+  saveUninitialized: false,
+  cookie: {
+    maxAge: 30 * 24 * 60 * 60 * 1000,
+    httpOnly: true,
+    secure: NODE_ENV === "production",
+    sameSite: NODE_ENV === "production" ? "none" : "lax"
+  }
+});
+
+initWebSocket(server, sessionMiddleware);
+
+// Запустить cleanup job
+const { startCleanupJob } = require("./utils/cleanup");
+startCleanupJob();
 
