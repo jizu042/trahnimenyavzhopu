@@ -1,5 +1,14 @@
+-- Очистка старых таблиц (если есть конфликты)
+DROP TABLE IF EXISTS chat_messages CASCADE;
+DROP TABLE IF EXISTS player_sessions CASCADE;
+DROP TABLE IF EXISTS server_metrics CASCADE;
+DROP TABLE IF EXISTS admin_config CASCADE;
+DROP TABLE IF EXISTS session CASCADE;
+DROP TABLE IF EXISTS server_uptime CASCADE;
+DROP TABLE IF EXISTS users CASCADE;
+
 -- Пользователи (OAuth через Ely.by)
-CREATE TABLE IF NOT EXISTS users (
+CREATE TABLE users (
   id SERIAL PRIMARY KEY,
   ely_id VARCHAR(255) UNIQUE NOT NULL,
   username VARCHAR(16) NOT NULL,
@@ -12,11 +21,11 @@ CREATE TABLE IF NOT EXISTS users (
   updated_at TIMESTAMP DEFAULT NOW()
 );
 
-CREATE INDEX IF NOT EXISTS idx_users_ely_id ON users(ely_id);
-CREATE INDEX IF NOT EXISTS idx_users_username ON users(username);
+CREATE INDEX idx_users_ely_id ON users(ely_id);
+CREATE INDEX idx_users_username ON users(username);
 
 -- Сообщения чата (7 дней хранения)
-CREATE TABLE IF NOT EXISTS chat_messages (
+CREATE TABLE chat_messages (
   id SERIAL PRIMARY KEY,
   user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
   username VARCHAR(16) NOT NULL,
@@ -24,10 +33,10 @@ CREATE TABLE IF NOT EXISTS chat_messages (
   created_at TIMESTAMP DEFAULT NOW()
 );
 
-CREATE INDEX IF NOT EXISTS idx_chat_created_at ON chat_messages(created_at DESC);
+CREATE INDEX idx_chat_created_at ON chat_messages(created_at DESC);
 
 -- Сессии игроков (7 дней хранения)
-CREATE TABLE IF NOT EXISTS player_sessions (
+CREATE TABLE player_sessions (
   id SERIAL PRIMARY KEY,
   server_address VARCHAR(255) NOT NULL,
   username VARCHAR(16) NOT NULL,
@@ -37,11 +46,11 @@ CREATE TABLE IF NOT EXISTS player_sessions (
   created_at TIMESTAMP DEFAULT NOW()
 );
 
-CREATE INDEX IF NOT EXISTS idx_sessions_server_username ON player_sessions(server_address, username);
-CREATE INDEX IF NOT EXISTS idx_sessions_login_time ON player_sessions(login_time DESC);
+CREATE INDEX idx_sessions_server_username ON player_sessions(server_address, username);
+CREATE INDEX idx_sessions_login_time ON player_sessions(login_time DESC);
 
 -- Uptime сервера (персистентное хранение)
-CREATE TABLE IF NOT EXISTS server_uptime (
+CREATE TABLE server_uptime (
   id SERIAL PRIMARY KEY,
   server_address VARCHAR(255) UNIQUE NOT NULL,
   online BOOLEAN NOT NULL,
@@ -51,7 +60,7 @@ CREATE TABLE IF NOT EXISTS server_uptime (
 );
 
 -- Метрики сервера (7 дней хранения)
-CREATE TABLE IF NOT EXISTS server_metrics (
+CREATE TABLE server_metrics (
   id SERIAL PRIMARY KEY,
   server_address VARCHAR(255) NOT NULL,
   online BOOLEAN NOT NULL,
@@ -62,10 +71,10 @@ CREATE TABLE IF NOT EXISTS server_metrics (
   recorded_at TIMESTAMP DEFAULT NOW()
 );
 
-CREATE INDEX IF NOT EXISTS idx_metrics_server_time ON server_metrics(server_address, recorded_at DESC);
+CREATE INDEX idx_metrics_server_time ON server_metrics(server_address, recorded_at DESC);
 
 -- Конфигурация админ-панели
-CREATE TABLE IF NOT EXISTS admin_config (
+CREATE TABLE admin_config (
   id SERIAL PRIMARY KEY,
   key VARCHAR(255) UNIQUE NOT NULL,
   value TEXT,
@@ -74,10 +83,10 @@ CREATE TABLE IF NOT EXISTS admin_config (
 );
 
 -- Сессии Express (для connect-pg-simple)
-CREATE TABLE IF NOT EXISTS session (
+CREATE TABLE session (
   sid VARCHAR NOT NULL PRIMARY KEY,
   sess JSON NOT NULL,
   expire TIMESTAMP(6) NOT NULL
 );
 
-CREATE INDEX IF NOT EXISTS idx_session_expire ON session(expire);
+CREATE INDEX idx_session_expire ON session(expire);
