@@ -78,7 +78,7 @@ node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"
 
 Web Service → Settings → Build & Deploy → Build Command:
 ```bash
-npm install && node db/migrations/run.js
+npm install && cd server && node db/migrations/run.js
 ```
 
 Это установит зависимости и запустит миграции БД.
@@ -91,15 +91,25 @@ git push origin main
 
 Render автоматически задеплоит изменения.
 
-### 5. Запуск миграций БД (первый раз)
+### 5. Запуск миграций БД (КРИТИЧНО - выполнить первым делом!)
 
-После деплоя, зайдите в Render Dashboard → Web Service → Shell и выполните:
+**ВАЖНО:** Если приложение уже задеплоено, но миграции не запускались, выполните:
+
+Зайдите в Render Dashboard → Web Service "trahnimenyavzhopu" → Shell и выполните:
 
 ```bash
-node db/migrations/run.js
+cd server && node db/migrations/run.js
 ```
 
-Это создаст все таблицы в PostgreSQL.
+Это создаст все таблицы в PostgreSQL. После этого перезапустите сервис через Render Dashboard.
+
+**Проверка успешности:**
+Логи должны показать:
+```
+✓ PostgreSQL connected successfully
+Running migrations...
+✓ Migration 001_initial_schema.sql completed
+```
 
 ### 6. Проверка работы
 
