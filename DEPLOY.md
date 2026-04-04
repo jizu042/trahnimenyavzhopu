@@ -78,7 +78,7 @@ node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"
 
 Web Service → Settings → Build & Deploy → Build Command:
 ```bash
-npm install && cd server && node db/migrations/run.js
+npm install && node server/db/migrations/run.js
 ```
 
 Это установит зависимости и запустит миграции БД.
@@ -98,7 +98,7 @@ Render автоматически задеплоит изменения.
 Зайдите в Render Dashboard → Web Service "trahnimenyavzhopu" → Shell и выполните:
 
 ```bash
-cd server && node db/migrations/run.js
+node server/db/migrations/run.js
 ```
 
 Это создаст все таблицы в PostgreSQL. После этого перезапустите сервис через Render Dashboard.
