@@ -24,6 +24,8 @@ passport.use(
     },
     async (accessToken, refreshToken, params, profile, done) => {
       try {
+        console.log("OAuth callback received, fetching user profile...");
+
         // Получить информацию о пользователе из Ely.by API
         const response = await fetch("https://account.ely.by/api/account/v1/info", {
           headers: {
@@ -32,10 +34,13 @@ passport.use(
         });
 
         if (!response.ok) {
-          return done(new Error("Failed to fetch user profile from Ely.by"));
+          console.error("Failed to fetch Ely.by profile:", response.status, response.statusText);
+          return done(new Error(`Failed to fetch user profile from Ely.by: ${response.status}`));
         }
 
         const elyProfile = await response.json();
+        console.log("Ely.by profile received:", elyProfile.username);
+
         const elyId = String(elyProfile.id);
         const username = elyProfile.username;
 
@@ -44,7 +49,9 @@ passport.use(
         const expiresAt = new Date(Date.now() + expiresIn * 1000);
 
         // Найти или создать пользователя в БД
+        console.log("Creating/updating user in database...");
         const user = await findOrCreateUser(elyId, username, accessToken, refreshToken, expiresAt);
+        console.log("User authenticated:", user.username);
 
         // Проверить, является ли пользователь первым админом
         const adminElyId = process.env.ADMIN_ELY_ID;
@@ -52,10 +59,12 @@ passport.use(
           const pool = require("../db/connection");
           await pool.query("UPDATE users SET is_admin = TRUE WHERE id = $1", [user.id]);
           user.is_admin = true;
+          console.log("User promoted to admin:", user.username);
         }
 
         return done(null, user);
       } catch (error) {
+        console.error("OAuth error:", error);
         return done(error);
       }
     }
@@ -64,15 +73,18 @@ passport.use(
 
 // Сериализация пользователя в сессию
 passport.serializeUser((user, done) => {
+  console.log("Serializing user:", user.id);
   done(null, user.id);
 });
 
 // Десериализация пользователя из сессии
 passport.deserializeUser(async (id, done) => {
   try {
+    console.log("Deserializing user:", id);
     const user = await findUserById(id);
     done(null, user);
   } catch (error) {
+    console.error("Deserialize error:", error);
     done(error);
   }
 });

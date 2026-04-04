@@ -3,7 +3,14 @@ const { Pool } = require("pg");
 const DATABASE_URL = process.env.DATABASE_URL;
 
 if (!DATABASE_URL) {
-  throw new Error("DATABASE_URL environment variable is required");
+  console.error("FATAL: DATABASE_URL environment variable is not set");
+  process.exit(1);
+}
+
+if (!DATABASE_URL.startsWith("postgres://") && !DATABASE_URL.startsWith("postgresql://")) {
+  console.error("FATAL: DATABASE_URL is invalid. Must start with postgres:// or postgresql://");
+  console.error("Current value:", DATABASE_URL.substring(0, 20) + "...");
+  process.exit(1);
 }
 
 const pool = new Pool({
@@ -16,7 +23,15 @@ const pool = new Pool({
 
 pool.on("error", (err) => {
   console.error("Unexpected error on idle PostgreSQL client", err);
-  process.exit(-1);
+});
+
+// Проверить подключение при старте
+pool.query("SELECT NOW()", (err, res) => {
+  if (err) {
+    console.error("FATAL: Failed to connect to PostgreSQL:", err.message);
+    process.exit(1);
+  }
+  console.log("PostgreSQL connected successfully at", res.rows[0].now);
 });
 
 module.exports = pool;
